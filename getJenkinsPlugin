@@ -7,64 +7,38 @@ if [ $# -eq 0 ]; then
   exit 1
 fi
 
-plugin_dir=/home/shlomi/Documents/ICC/repo
-echo "installing the following plugins and dependencies" > ${plugin_dir}/downloadedDependencies.txt
-#file_owner=jenkins.jenkins
-echo ${plugin_dir}
-#mkdir -p /var/lib/jenkins/plugins
+SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
+DATE=`date '+%Y-%m-%d %H:%M:%S'`
 
-installPlugin() {
-  if [ -f ${plugin_dir}/${1}.hpi -o -f ${plugin_dir}/${1}.jpi ]; then
-    if [ "$2" == "1" ]; then
-      return 1
-    fi
-    echo "Skipped: $1 (already installed)"
-    return 0
-  else
-    echo "copy plugin: $1 from /tmp/jenkinsAllPlugins/ to ${plugin_dir}"
-    #cp "/tmp/jenkinsAllPlugins/${1}.hpi "${plugin_dir}"
-    if [[ "$1" == *":"* ]]; then
-      dependencyString=$1
+plugin_dir=${SCRIPTPATH}/pluginRepository
+
+if [ -d "$plugin_dir" ]; then rm -Rf $plugin_dir; fi
+mkdir -p "$plugin_dir"
+
+echo "${DATE} Downloading the following plugins and dependencies:" > ${plugin_dir}/downloadedDependencies.txt
+
+downloadJenkinsPluginWithDependencies() {
+   dependencyString=$1
+   if [[ "$dependencyString" == *":"* ]]; then
       dependencyName=$(echo $dependencyString | awk -F ':' '{ print $1 }')
       dependencyVersion=$(echo $dependencyString | awk -F ':' '{ print $2}')
       curl -L --silent --output ${plugin_dir}/$dependencyName.hpi https://updates.jenkins.io/download/plugins/$dependencyName/$dependencyVersion/$dependencyName.hpi
    else
-     curl -L --silent --output ${plugin_dir}/${1}.hpi  https://updates.jenkins-ci.org/latest/${1}.hpi
-fi
-    echo $dependencyString >> ${plugin_dir}/downloadedDependencies.txt
-    return 0
-  fi
+      dependencyName=$dependencyString
+      dependencyVersion="LATEST"
+      curl -L --silent --output ${plugin_dir}/${dependencyName}.hpi  https://updates.jenkins-ci.org/latest/${dependencyName}.hpi
+   fi
+   echo "${dependencyName}:${dependencyVersion}" >> ${plugin_dir}/downloadedDependencies.txt
+
+   pluginDependencies=$( unzip -p ${plugin_dir}/${dependencyName}.hpi META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | tr '\n' ' ')
+
+   for jenkinsPlugin in $pluginDependencies; do
+      downloadJenkinsPluginWithDependencies $jenkinsPlugin 
+   done
+
 }
 
-for plugin in $*
+for pluginToDownload in $*
 do
-    installPlugin "$plugin"
+   downloadJenkinsPluginWithDependencies "$pluginToDownload"
 done
-
-changed=1
-maxloops=100
-
-while [ "$changed"  == "1" ]; do
-  echo "Check for missing dependecies ..."
-  if  [ $maxloops -lt 1 ] ; then
-    echo "Max loop count reached - probably a bug in this script: $0"
-    exit 1
-  fi
-  ((maxloops--))
-  changed=0
-  for f in ${plugin_dir}/*.hpi ; do
-    # without optionals
-    #deps=$( unzip -p ${f} META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | grep -v "resolution:=optional" | awk -F ':' '{ print $1 }' | tr '\n' ' ' )
-    # with optionals
-    #deps=$( unzip -p ${f} META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | awk -F ':' '{ print $1 }' | tr '\n' ' ' )
-    deps=$( unzip -p ${f} META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | tr '\n' ' ')
-    for plugin in $deps; do
-      installPlugin "$plugin" 1 && changed=1
-    done
-  done
-done
-
-#echo "fixing permissions"
-#chown ${file_owner} ${plugin_dir} -R
-
-echo "all done"
