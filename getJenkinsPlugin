@@ -22,23 +22,25 @@ downloadJenkinsPluginWithDependencies() {
    dependencyString=$1
    if [[ "$dependencyString" == *";"* ]] && [[ $include_optional_dependencies != "true" ]]; then
       echo "skipping optional dependency $dependencyString"
-   elif [[ "$dependencyString" == *":"* ]]; then
-      dependencyName=$(echo $dependencyString | awk -F ':' '{ print $1 }')
-      dependencyVersion=$(echo $dependencyString | awk -F '[:;]' '{ print $2}')
-      curl -L --silent --output ${plugin_dir}/$dependencyName.hpi https://updates.jenkins.io/download/plugins/$dependencyName/$dependencyVersion/$dependencyName.hpi
    else
-      dependencyName=$dependencyString
-      dependencyVersion="LATEST"
-      curl -L --silent --output ${plugin_dir}/${dependencyName}.hpi  https://updates.jenkins-ci.org/latest/${dependencyName}.hpi
+
+      if [[ "$dependencyString" == *":"* ]]; then
+         dependencyName=$(echo $dependencyString | awk -F ':' '{ print $1 }')
+         dependencyVersion=$(echo $dependencyString | awk -F '[:;]' '{ print $2}')
+         curl -L --silent --output ${plugin_dir}/$dependencyName.hpi https://updates.jenkins.io/download/plugins/$dependencyName/$dependencyVersion/$dependencyName.hpi
+      else
+         dependencyName=$dependencyString
+         dependencyVersion="LATEST"
+         curl -L --silent --output ${plugin_dir}/${dependencyName}.hpi  https://updates.jenkins-ci.org/latest/${dependencyName}.hpi
+      fi
+      echo "${dependencyName}:${dependencyVersion}" >> ${plugin_dir}/downloadedDependencies.txt
+
+      pluginDependencies=$( unzip -p ${plugin_dir}/${dependencyName}.hpi META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | tr '\n' ' ')
+   
+      for jenkinsPlugin in $pluginDependencies; do
+         downloadJenkinsPluginWithDependencies $jenkinsPlugin 
+      done
    fi
-   echo "${dependencyName}:${dependencyVersion}" >> ${plugin_dir}/downloadedDependencies.txt
-
-   pluginDependencies=$( unzip -p ${plugin_dir}/${dependencyName}.hpi META-INF/MANIFEST.MF | tr -d '\r' | sed -e ':a;N;$!ba;s/\n //g' | grep -e "^Plugin-Dependencies: " | awk '{ print $2 }' | tr ',' '\n' | tr '\n' ' ')
-   echo $pluginDependencies >> ${plugin_dir}/downloadedDependencies.txt
-   for jenkinsPlugin in $pluginDependencies; do
-      downloadJenkinsPluginWithDependencies $jenkinsPlugin 
-   done
-
 }
 
 for pluginToDownload in $*
